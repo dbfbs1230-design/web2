@@ -1,5 +1,0 @@
-/* 기존 캐릭터 소개 양식을 공유하고, 단계 목록과의 구분만 추가합니다. */
-.part-detail { margin-top:26px; padding-top:22px; border-top:1px solid var(--line); scroll-margin-top:100px; }
-.part-detail[hidden] { display:none; }
-.part-detail .rescue-key { margin-top:12px; }
-@media(max-width:760px) { .part-detail { scroll-margin-top:78px; } }
