@@ -1,0 +1,17 @@
+/* 기존 Event/Character의 목록, 소개, 장소 상세 스타일을 공유합니다. */
+.sidebar > .tabs { gap:12px; }
+.sidebar > .tabs button { min-width:0; font-size:13px; padding:0; white-space:nowrap; }
+.sidebar > .tabs button span { margin-left:5px; font-size:10px; }
+.place-profile { --profile-color:#c6b998; }
+.detail .place-profile .character-profile-name { margin:15px 0 7px; }
+.detail .place-profile .character-profile-meta { margin:0; font-size:11px; color:var(--profile-color); }
+.detail .place-profile .character-profile-summary { margin:18px 0 23px; font-size:15px; color:#e3e3d7; }
+.detail .place-profile .character-profile-body { margin:0; font-size:12px; }
+.catalog-shape { fill:#424c43; stroke:#fff2d6; stroke-width:6; stroke-linejoin:round; }
+.catalog-marker { cursor:pointer; }
+.catalog-marker:focus { outline:none; }
+.catalog-marker:focus-visible .catalog-shape { stroke:#fff; stroke-width:9; }
+.catalog-marker text { fill:#eee4cd; font-family:inherit; pointer-events:none; paint-order:stroke; stroke:#121416; stroke-width:3; stroke-linejoin:round; }
+.landmark-menu[hidden] { display:none; }
+.selection-item.place { min-height:64px; }
+@media(max-width:700px) { .sidebar > .tabs { gap:16px; } }

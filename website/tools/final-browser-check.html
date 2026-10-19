@@ -1,0 +1,94 @@
+<!doctype html><meta charset="utf-8"><title>최종 로컬 검증</title>
+<style>body{font:14px system-ui;background:#171a19;color:#eee;margin:20px}button{padding:12px}pre{white-space:pre-wrap}iframe{border:1px solid #555;width:1200px;height:800px;max-width:none}</style>
+<button id="run">최종 검사 실행</button><pre id="status">검사 준비</pre><iframe id="site" src="../index.html"></iframe>
+<script>
+const report=document.querySelector('#status'),frame=document.querySelector('#site');let count=0;
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+function check(value,label){if(!value)throw Error(label);count++;}
+function log(s){report.textContent+=`\n${s}`;}
+async function until(fn,label,timeout=60000){const start=performance.now();while(!fn()){if(performance.now()-start>timeout)throw Error('시간 초과: '+label);await wait(50);}}
+document.querySelector('#run').onclick=async()=>{
+document.querySelector('#run').disabled=true;report.textContent='실행 중';
+let w,d;const errors=[];let restore;
+try{
+ await until(()=>frame.contentWindow.Atlas,'초기화');w=frame.contentWindow;d=w.document;
+ w.addEventListener('error',e=>errors.push(e.message));w.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
+ const rafs=new Set(),timers=new Set();const native={raf:w.requestAnimationFrame.bind(w),caf:w.cancelAnimationFrame.bind(w),timeout:w.setTimeout.bind(w),clear:w.clearTimeout.bind(w)};
+ w.requestAnimationFrame=fn=>{let id=native.raf(t=>{rafs.delete(id);fn(t);});rafs.add(id);return id;};
+ w.cancelAnimationFrame=id=>{rafs.delete(id);native.caf(id);};
+ w.setTimeout=(fn,ms,...args)=>{let id=native.timeout(()=>{timers.delete(id);fn(...args);},ms);timers.add(id);return id;};
+ w.clearTimeout=id=>{timers.delete(id);native.clear(id);};
+ restore=()=>Object.assign(w,{requestAnimationFrame:native.raf,cancelAnimationFrame:native.caf,setTimeout:native.timeout,clearTimeout:native.clear});
+ const click=async selector=>{const n=d.querySelector(selector);check(!!n,'없는 요소 '+selector);n.click();await wait(45);};
+ const tab=kind=>click('#tab-'+kind);
+ const select=id=>click('#selection-list [data-id="'+id+'"]');
+ const part=(id,p)=>click('[data-journey="'+id+'"] [data-part="'+p+'"]');
+ const visibleLabels=()=>[...d.querySelectorAll('.character-occurrence-label')].filter(n=>w.getComputedStyle(n).display!=='none'&&n.getBoundingClientRect().width>0);
+ const clear=()=>click('#clear-selection');
+ await click('#enter');await until(()=>d.querySelector('#intro').hidden,'입장');
+ check(d.querySelectorAll('#landmark-layer >g').length===7,'기본거점7');
+ const urls=[...d.querySelectorAll('script[src],link[rel=stylesheet]')].map(n=>n.src||n.href);
+ for(const url of urls)check((await fetch(url)).ok,'참조 파일 '+url);
+ log('초기 입장·기본 거점·참조 파일 통과');
+ await tab('place');check(d.querySelectorAll('#selection-list .place').length===14,'거점14');
+ for(const p of w.PLACE_CATALOG){await select(p.id);check(d.querySelector('#detail h3').textContent===d.querySelector('#selection-list [data-id="'+p.id+'"] .item-name').textContent,'거점 제목');check(d.querySelectorAll('#catalog-place-layer >g').length===(p.basic?0:1),'선택 마커');}
+ // 추가 마커 pointerdown이 지도 드래그로 처리되지 않는지 실제 이벤트 경로 확인.
+ await select('inn');const marker=d.querySelector('#catalog-place-layer >g');
+ marker.dispatchEvent(new w.PointerEvent('pointerdown',{bubbles:true,pointerId:77,button:0,clientX:40,clientY:40}));
+ check(!d.querySelector('#map-viewport').classList.contains('dragging'),'거점 드래그 충돌');
+ await clear();check(!d.querySelector('#catalog-place-layer >g'),'거점 해제');log('14거점·선택 해제·마커 입력 통과');
+ await tab('character');for(const id of ['kagan','tinahan','bihyung'])await select(id);
+ await part('kagan',1);check(!d.querySelector('#kagan-routes .character-occurrence-label'),'도착전 집결 숨김');
+ await part('tinahan',1);await part('bihyung',2);await wait(1000);
+ check(visibleLabels().filter(n=>n.dataset.eventRef==='rescue-assembly').length===1,'3인 집결 병합');
+ check(visibleLabels()[0].getAttribute('fill')==='#C5CED3','공통색');
+ await select('tinahan');await select('bihyung');check(visibleLabels()[0].getAttribute('fill')==='#E8DCC5','단독 복원');
+ await clear();for(const id of ['ryun','samo'])await select(id);await part('ryun',5);await part('samo',5);await wait(1000);
+ check(visibleLabels().filter(n=>n.dataset.eventRef==='samo-collapse').length===1,'가사상태 병합');
+ await clear();for(const id of ['tinahan','bihyung'])await select(id);await part('tinahan',6);await part('bihyung',6);
+ check(visibleLabels().length===1&&visibleLabels()[0].dataset.eventRef==='bihyung-rescue','비형 구출 병합');
+ await clear();for(const id of ['kagan','tinahan','bihyung','ryun','samo'])await select(id);
+ for(const [id,p]of [['kagan',2],['tinahan',2],['bihyung',3],['ryun',2],['samo',2]])await part(id,p);
+ await wait(1000);check(visibleLabels().length===5,'무룬5인 분리');log('공통 사건 병합·개인행동·도착후 표시 통과');
+ for(const [width,height]of [[390,844],[820,1180],[1440,900],[844,390]]){
+   frame.style.width=width+'px';frame.style.height=height+'px';await wait(160);
+   check(d.documentElement.scrollWidth<=w.innerWidth,'가로 넘침 '+width);
+   const rs=visibleLabels().map(n=>n.getBoundingClientRect());
+   for(let i=0;i<rs.length;i++)for(let j=i+1;j<rs.length;j++)check(!(rs[i].left<rs[j].right&&rs[i].right>rs[j].left&&rs[i].top<rs[j].bottom&&rs[i].bottom>rs[j].top),'문구 겹침 '+width);
+   await click('#zoom-in');await click('#reset-view');
+   check(!/NaN|undefined/.test(d.querySelector('#map-overlay').innerHTML),'좌표 변환 '+width);
+ }
+ frame.style.width='1440px';frame.style.height='900px';await wait(120);log('4개 화면 크기·겹침·확대 좌표 통과');
+ // 이전 00의 대기 예약이 새 재생에 끼어들지 않아야 합니다.
+ await clear();await select('kagan');await part('kagan',0);await wait(1100);await part('kagan',0);await wait(1100);
+ check(d.querySelectorAll('#kagan-routes .rescue-line').length===1,'빠른 재시작 경로 중복');
+ await part('kagan',4);await wait(1400);check(d.querySelectorAll('#kagan-routes .rescue-line').length===0,'개별 파트에 이전00 침입');
+ log('캐릭터00 재시작·개별 전환 예약 충돌 통과');
+ // 전체 재생 중 숨겨진 페이지의 RAF/타이머/효과가 실제로 멈추는지 검증합니다.
+ await part('kagan',0);await wait(150);Object.defineProperty(d,'hidden',{configurable:true,get:()=>true});d.dispatchEvent(new w.Event('visibilitychange'));await wait(250);
+ check(rafs.size===0&&timers.size===0,'백그라운드 예약 정지');
+ delete d.hidden;d.dispatchEvent(new w.Event('visibilitychange'));await wait(100);await tab('place');await wait(1200);
+ check(!d.querySelector('#kagan-routes .rescue-line'),'탭 이탈 후 지연선 생성');
+ await tab('event');
+ for(const id of ['rescue','pursuit','war']){
+  await clear();await select(id);await part(id,0);await wait(120);await click('.playback-buttons button');
+  check(w.JourneyPlayback.getState().status==='paused','정지 '+id);
+  const old=d.querySelector('#'+id+'-routes').innerHTML;await wait(200);check(old===d.querySelector('#'+id+'-routes').innerHTML,'정지 중 DOM '+id);
+  await click('.playback-buttons button:nth-child(4)');check(w.JourneyPlayback.getState().status==='paused','다음 정지유지 '+id);
+  await click('.playback-buttons button:nth-child(3)');await click('.playback-buttons button');
+  await until(()=>w.JourneyPlayback.getState().status==='complete','전체 완주 '+id);
+  check(!/NaN|undefined/.test(d.querySelector('#map-overlay').innerHTML),'완주 좌표 '+id);
+  await tab('place');await tab('event');check(w.JourneyPlayback.getState().status==='idle','탭 이탈 '+id);
+  log(id+' 전체 완주·정지·이전다음·탭취소 통과');
+ }
+ await clear();await tab('character');await select('samo');await part('samo',9);await wait(3900);
+ check(d.querySelectorAll('#samo-routes .rescue-line').length===4,'사모 남진4구간');
+ await tab('place');await clear();await wait(500);check(rafs.size===0&&timers.size===0,'유휴 예약0');
+ await click('#home');await wait(120);check(!d.querySelector('#intro').hidden,'표지 복귀');
+ await click('#enter');await until(()=>d.querySelector('#intro').hidden,'재입장');await wait(200);
+ check(rafs.size===0&&timers.size===0,'재입장 유휴예약0');
+ check(errors.length===0,'콘솔 오류 '+errors.join(' / '));
+ restore();report.dataset.result='pass';log('PASS '+count+'개 검사 완료 · 콘솔 오류0 · 유휴/백그라운드 예약0');
+}catch(e){if(d&&Object.hasOwn(d,'hidden')){delete d.hidden;d.dispatchEvent(new w.Event('visibilitychange'));}restore?.();report.dataset.result='fail';log('FAIL '+e.stack);}
+};
+</script>
