@@ -1,0 +1,34 @@
+<!doctype html><meta charset="utf-8"><title>6인 전체 재생 검사</title>
+<button id="run">6인 전체 재생 검사</button><pre id="status">준비</pre><iframe id="site" src="../index.html" style="width:1440px;height:900px"></iframe>
+<script>
+const frame=document.querySelector('#site'),report=document.querySelector('#status'),wait=ms=>new Promise(r=>setTimeout(r,ms));
+const until=async(fn)=>{const t=performance.now();while(!fn()){if(performance.now()-t>45000)throw Error('시간 초과');await wait(50);}};
+document.querySelector('#run').onclick=async()=>{
+ document.querySelector('#run').disabled=true;const errors=[];let restore;report.textContent='실행 중';
+ try{
+  await until(()=>frame.contentWindow.Atlas);const w=frame.contentWindow,d=w.document;
+  w.addEventListener('error',e=>errors.push(e.message));w.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
+  const rafs=new Set(),timers=new Set(),original={raf:w.requestAnimationFrame.bind(w),caf:w.cancelAnimationFrame.bind(w),timer:w.setTimeout.bind(w),clear:w.clearTimeout.bind(w)};
+  w.requestAnimationFrame=fn=>{let id=original.raf(t=>{rafs.delete(id);fn(t);});rafs.add(id);return id;};w.cancelAnimationFrame=id=>{rafs.delete(id);original.caf(id);};
+  w.setTimeout=(fn,ms,...args)=>{let id=original.timer(()=>{timers.delete(id);fn(...args);},ms);timers.add(id);return id;};w.clearTimeout=id=>{timers.delete(id);original.clear(id);};
+  restore=()=>Object.assign(w,{requestAnimationFrame:original.raf,cancelAnimationFrame:original.caf,setTimeout:original.timer,clearTimeout:original.clear});
+  const click=async s=>{const n=d.querySelector(s);if(!n)throw Error('요소 없음 '+s);n.click();await wait(45);};
+  await click('#enter');await until(()=>d.querySelector('#intro').hidden);await click('#tab-character');
+  const ids=['kagan','tinahan','bihyung','ryun','samo','galrotek'];
+  for(const id of ids)await click('#selection-list [data-id="'+id+'"]');
+  for(const id of ids)await click('[data-journey="'+id+'"] [data-part="0"]');
+  await until(()=>rafs.size===0&&timers.size===0);
+  if(errors.length)throw Error(errors.join(' / '));
+  if(/NaN|undefined/.test(d.querySelector('#map-overlay').innerHTML))throw Error('좌표 오류');
+  if(d.querySelectorAll('#map-overlay mask').length)throw Error('완료된 마스크가 남음');
+  for(const id of ids)if(!d.querySelector('#'+id+'-routes .rescue-line'))throw Error('완주 경로 누락 '+id);
+  const idsInDOM=[...d.querySelectorAll('[id]')].map(n=>n.id);if(new Set(idsInDOM).size!==idsInDOM.length)throw Error('중복 ID');
+  report.textContent='6인 전체 재생 완주 · 유휴 예약0 · 임시 마스크0 · 중복 ID0 · 좌표 오류0';
+  await click('#clear-selection');await wait(300);
+  for(const id of ids)if(d.querySelector('#'+id+'-routes').children.length)throw Error('선택 해제 레이어 잔존 '+id);
+  if(rafs.size||timers.size)throw Error('선택 해제 예약 잔존');
+  if(errors.length)throw Error(errors.join(' / '));
+  report.dataset.result='pass';report.textContent+='\nPASS: 선택 해제 후 6인 레이어0·예약0·콘솔 오류0';restore();
+ }catch(e){restore?.();report.dataset.result='fail';report.textContent+='\nFAIL: '+e.stack;}
+};
+</script>

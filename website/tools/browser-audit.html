@@ -1,0 +1,77 @@
+<!doctype html><meta charset="utf-8"><title>브라우저 종합 점검</title>
+<style>body{font:14px system-ui;background:#151818;color:#eee;margin:12px}button{padding:14px}pre{white-space:pre-wrap;max-height:170px;overflow:auto}iframe{width:1440px;height:900px;border:1px solid #555}#summary{font-size:18px}</style>
+<button id="run">종합 검사 실행</button><p id="summary">준비</p><pre id="status"></pre><iframe id="site"></iframe>
+<script>
+const f=document.querySelector('#site'),params=new URLSearchParams(location.search),browser=params.get('browser')||'unknown',wait=ms=>new Promise(r=>setTimeout(r,ms));
+f.src='audit-site.html?browser='+encodeURIComponent(browser);
+const out=document.querySelector('#status'),summary=document.querySelector('#summary');let count=0,errors=[],stats={};
+const ok=(v,s)=>{if(!v)throw Error(s);count++};const until=async(fn,ms=150000)=>{let t=performance.now();while(!fn()){if(performance.now()-t>ms)throw Error('시간 초과');await wait(50)}};
+const publish=async(name,data)=>{try{await fetch('/__audit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:browser+'-'+name,...data})})}catch(e){}};
+document.querySelector('#run').onclick=async()=>{
+ document.querySelector('#run').disabled=true;let w,d;const sizes=[[1440,900],[390,844],[820,1180],[844,390],[1024,768]];
+ const log=s=>{out.textContent+='\n'+s;summary.textContent=s};
+ try{
+ await until(()=>f.contentWindow.__audit&&f.contentWindow.Atlas);w=f.contentWindow;d=w.document;
+ w.addEventListener('error',e=>errors.push(e.message));w.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
+ const frames=()=>new Promise(r=>w.requestAnimationFrame(()=>w.requestAnimationFrame(r)));
+ const click=async s=>{ok(d.querySelector(s),'없는 요소 '+s);d.querySelector(s).click();await wait(60);if(!d.hidden)await frames()};
+ await wait(500);stats.intro=w.__audit.snapshot();ok(stats.intro.canvas.width*stats.intro.canvas.height<=2000000+4000,'눈 캔버스 제한');
+ await click('#enter');await until(()=>d.querySelector('#intro').hidden);await wait(1700);await until(()=>d.querySelector('#map-image').complete&&d.querySelector('#map-image').naturalWidth>0,15000);stats.initial=w.__audit.snapshot();
+ ok(stats.initial.canvas.width===1&&stats.initial.canvas.height===1,'표지 버퍼 반환');ok(stats.initial.raf===0&&stats.initial.timers===0,'지도 유휴 예약');
+ stats.resources=w.performance.getEntriesByType('resource').filter(r=>r.name.includes('/assets/')||r.name.includes('/js/')||r.name.includes('/css/')).map(r=>({name:r.name.split('/').slice(-1)[0],bytes:r.decodedBodySize,transfer:r.transferSize}));stats.fontFaces=[...d.fonts].map(font=>({family:font.family,status:font.status,weight:font.weight,unicodeRange:font.unicodeRange}));stats.initialImage={w:d.querySelector('#map-image').naturalWidth,h:d.querySelector('#map-image').naturalHeight};
+ log('초기 로딩·표지 버퍼·지도 유휴 통과');
+ if(params.has('resources')){await publish('initial-only',{result:'pass',stats,errors});summary.textContent='PASS '+browser+' 초기 리소스 확인';document.title=summary.textContent;return;}
+ for(const [width,height]of sizes){
+  f.style.width=width+'px';f.style.height=height+'px';await wait(250);await frames();
+  ok(d.documentElement.scrollWidth<=w.innerWidth,'가로 넘침 '+width);
+  await click('#tab-place');await click('#selection-list [data-id="inn"]');ok(d.querySelector('#catalog-place-layer >g'),'추가거점 '+width);await click('#clear-selection');
+  await click('#tab-character');await click('#selection-list [data-id="kagan"]');await click('[data-journey="kagan"] [data-part="4"]');
+  const label=d.querySelector('#kagan-routes .character-occurrence-label');ok(label&&w.getComputedStyle(label).display!=='none','각주 '+width);
+  await click('#zoom-in');await click('#zoom-in');await click('#reset-view');await click('#clear-selection');
+  const v=d.querySelector('#map-viewport'),before=w.Atlas.getState();v.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));await frames();ok(Math.abs(w.Atlas.getState().x-before.x)<1,'100% 외곽 제한 '+width);
+  await click('#tab-event');await click('#selection-list [data-id="rescue"]');await click('[data-journey="rescue"] [data-part="1"]');await wait(1000);await click('#clear-selection');
+ }
+ log('PC·휴대폰·태블릿·가로 5개 화면 및 탭 연결 통과');
+ // 합성 포인터는 실제 터치 기기 검증과 구별합니다. 캡처만 검사 대상에서 대체합니다.
+ const v=d.querySelector('#map-viewport'),capture=v.setPointerCapture;v.setPointerCapture=()=>{};
+ const point=(type,id,x,y)=>v.dispatchEvent(new w.PointerEvent(type,{pointerId:id,pointerType:'touch',button:0,clientX:x,clientY:y,bubbles:true}));
+ await click('#reset-view');const vr=v.getBoundingClientRect(),x=vr.left+vr.width/2,y=vr.top+vr.height/2,scale=w.Atlas.getState().scale;
+ point('pointerdown',71,x-30,y);point('pointerdown',72,x+30,y);point('pointermove',72,x+65,y);await frames();ok(w.Atlas.getState().scale>scale,'합성 핀치 확대');
+ point('pointercancel',71,x-30,y);point('pointercancel',72,x+65,y);ok(!v.classList.contains('dragging'),'터치 취소 상태');
+ point('pointerdown',73,x,y);point('lostpointercapture',73,x,y);ok(!v.classList.contains('dragging'),'캡처 상실 정리');v.setPointerCapture=capture;
+ await click('#reset-view');await click('#tab-character');await click('#clear-selection');await wait(300);
+ const baseline=w.__audit.snapshot(),cycles=[];
+ for(let i=0;i<12;i++){
+  for(const [who,part]of [['kagan',4],['tinahan',6],['bihyung',6],['ryun',1],['samo',6],['galrotek',1]]){await click('#selection-list [data-id="'+who+'"]');await click('[data-journey="'+who+'"] [data-part="'+part+'"]')}
+  await click('#clear-selection');await frames();await wait(200);await until(()=>{const m=w.__audit.snapshot();return m.raf===0&&m.timers===0},5000);const m=w.__audit.snapshot();ok(m.occurrences===0,'반복 각주 잔존 '+i);ok(m.dom===baseline.dom,'반복 DOM 증가 '+i);ok(m.raf===0&&m.timers===0,'반복 예약 잔존 '+i);cycles.push(m);
+ }
+ stats.cycles=cycles;log('12회 6인 선택·해제: DOM·각주·예약 누적 없음');
+ // pagehide는 visibilitychange 없이도 정지하며 pageshow로 복원되어야 합니다.
+ await click('#tab-event');await click('#selection-list [data-id="war"]');await click('[data-journey="war"] [data-part="0"]');await wait(150);
+ w.dispatchEvent(new w.PageTransitionEvent('pagehide',{persisted:true}));await wait(250);stats.pagehide=w.__audit.snapshot();ok(stats.pagehide.raf===0&&stats.pagehide.timers===0,'페이지 이탈 예약');
+ w.dispatchEvent(new w.PageTransitionEvent('pageshow',{persisted:true}));await frames();await click('#tab-place');await wait(500);
+ await click('#home');await wait(200);stats.returnIntro=w.__audit.snapshot();ok(stats.returnIntro.canvas.width>1,'표지 복원');
+ w.dispatchEvent(new w.PageTransitionEvent('pagehide',{persisted:true}));await wait(200);stats.hiddenIntro=w.__audit.snapshot();ok(stats.hiddenIntro.raf===0&&stats.hiddenIntro.timers===0&&stats.hiddenIntro.canvas.width===1,'표지 이탈 중지');w.dispatchEvent(new w.PageTransitionEvent('pageshow',{persisted:true}));
+ await click('#enter');await until(()=>d.querySelector('#intro').hidden);await wait(500);stats.final=w.__audit.snapshot();ok(stats.final.raf===0&&stats.final.timers===0,'복귀 유휴');ok(!errors.length,'콘솔 오류 '+errors.join('/'));
+ await publish('resources',{result:'pass',count,stats,errors,userAgent:w.navigator.userAgent});
+ log('리소스·입력·백그라운드 수명 검사 완료');
+ for(const [file,label]of [['final-browser-check.html','기존 기능'],['check-safari-labels.html','각주 확대·이동']]){
+  const loaded=new Promise(resolve=>f.onload=resolve);f.src=file;await loaded;await until(()=>f.contentDocument?.querySelector('#run'));f.contentDocument.querySelector('#run').click();await until(()=>['pass','fail'].includes(f.contentDocument?.querySelector('#status')?.dataset.result),240000);
+  const report=f.contentDocument.querySelector('#status');ok(report.dataset.result==='pass',label+' '+report.textContent);await publish(file.replace('.html',''),{result:'pass',report:report.textContent});log(label+' 통과');
+ }
+ summary.textContent='PASS '+browser+' 종합 점검 완료';document.title=summary.textContent;await publish('complete',{result:'pass',count,errors});
+ }catch(e){summary.textContent='FAIL '+browser;document.title=summary.textContent;out.textContent+='\n'+e.stack;await publish('failure',{result:'fail',count,error:String(e),errors,stats});}
+};
+</script>
+<button id="background">실제 탭 숨김 검사 준비</button>
+<script>
+document.querySelector('#background').onclick=async()=>{
+ try{
+  const loaded=new Promise(r=>f.onload=r);f.src='audit-site.html?browser='+browser+'-background';await loaded;await until(()=>f.contentWindow.Atlas);const w=f.contentWindow,d=w.document;
+  d.querySelector('#enter').click();await until(()=>d.querySelector('#intro').hidden);w.Atlas.openEvent('war');await wait(100);d.querySelector('[data-journey="war"] [data-part="0"]').click();await wait(150);
+  summary.textContent='READY 실제 탭 전환 대기';document.title=summary.textContent;
+  d.addEventListener('visibilitychange',()=>{if(!d.hidden){setTimeout(()=>{const m=w.__audit.snapshot();publish('background-resumed',{result:'resumed',state:m});summary.textContent='복귀 확인 · 재생 재개';document.title=summary.textContent;w.Atlas.openPlace(null)},300)}},{once:false});
+ }catch(e){summary.textContent=String(e)}
+};
+</script>
+<script>if(params.has('auto'))addEventListener('load',()=>document.querySelector('#run').click());</script>
