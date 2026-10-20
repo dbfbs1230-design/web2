@@ -1,0 +1,34 @@
+/* 모바일 주소창 높이와 터치 입력을 고려한 성능/레이아웃 보정입니다. */
+html, body { height:100%; height:100dvh; }
+.map-world { will-change:auto; }
+.sidebar { overscroll-behavior:contain; min-width:0; }
+.playback-title { overflow-wrap:anywhere; }
+@media(pointer:coarse) {
+  .playback-buttons button, .zoom-controls button, #inspect-toggle { min-height:44px; min-width:44px; }
+  .playback-buttons { gap:6px; }
+}
+@media(max-width:700px) {
+  .workspace { grid-template-rows:minmax(210px,48%) minmax(0,52%); }
+  .playback-bar { padding:10px 20px; }
+  .playback-buttons button { padding:8px 7px; min-height:44px; }
+  .zoom-controls button, #inspect-toggle { min-height:44px; min-width:44px; }
+  .map-viewport > .home { width:72px; top:12px; left:14px; }
+  .has-playback .part-detail h3 { scroll-margin-top:220px; }
+}
+/* 낮은 가로 화면은 지도를 위아래로 압축하지 않고 패널과 나란히 배치합니다. */
+@media(max-height:500px) and (orientation:landscape) {
+  .workspace { grid-template-columns:minmax(0,1fr) 310px; grid-template-rows:100%; }
+  .sidebar > .tabs { height:50px; min-height:50px; }
+  .playback-bar { top:50px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .sidebar { scroll-behavior:auto; }
+}
+/* 세로 태블릿은 좁고 긴 지도 대신 넓은 상단 지도와 하단 상세를 제공합니다. */
+@media(min-width:701px) and (max-width:1024px) and (orientation:portrait) {
+  .workspace { grid-template-columns:1fr; grid-template-rows:52% minmax(0,48%); }
+  .sidebar { border-left:0; border-top:1px solid var(--line); }
+}
+@media(max-width:1024px) {
+  .playback-buttons button, .landmark-list button { min-height:44px; }
+}
